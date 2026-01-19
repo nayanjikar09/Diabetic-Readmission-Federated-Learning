@@ -1,0 +1,16 @@
+{
+    "round": 2,
+    "accuracy": 74.4,
+    "logs": [
+        {
+            "round": 1,
+            "clients": 3,
+            "accuracy": 69.93
+        },
+        {
+            "round": 2,
+            "clients": 1,
+            "accuracy": 74.4
+        }
+    ]
+}
