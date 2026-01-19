@@ -1,4 +1,4 @@
-
+![Dashboard Preview](assets/Screenshot 2026-01-19 102433.png)
 🏥 Federated Learning for Diabetic Readmission
 📝 Overview
 This project demonstrates a Federated Learning (FL) approach to a healthcare classification problem. Using XGBoost, we predict whether a diabetic patient will be readmitted to the hospital within 30 days (<30), after 30 days (>30), or not at all (NO).
