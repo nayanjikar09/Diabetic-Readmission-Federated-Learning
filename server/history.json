@@ -1,16 +1,56 @@
 {
-    "round": 2,
-    "accuracy": 74.4,
+    "round": 10,
+    "accuracy": 50.0,
     "logs": [
         {
             "round": 1,
-            "clients": 3,
-            "accuracy": 69.93
+            "clients": 1,
+            "accuracy": 50.0
         },
         {
             "round": 2,
+            "clients": 3,
+            "accuracy": 50.0
+        },
+        {
+            "round": 3,
+            "clients": 3,
+            "accuracy": 50.0
+        },
+        {
+            "round": 4,
+            "clients": 3,
+            "accuracy": 50.0
+        },
+        {
+            "round": 5,
+            "clients": 2,
+            "accuracy": 50.0
+        },
+        {
+            "round": 6,
             "clients": 1,
-            "accuracy": 74.4
+            "accuracy": 50.0
+        },
+        {
+            "round": 7,
+            "clients": 2,
+            "accuracy": 50.0
+        },
+        {
+            "round": 8,
+            "clients": 3,
+            "accuracy": 50.0
+        },
+        {
+            "round": 9,
+            "clients": 2,
+            "accuracy": 50.0
+        },
+        {
+            "round": 10,
+            "clients": 3,
+            "accuracy": 50.0
         }
     ]
 }

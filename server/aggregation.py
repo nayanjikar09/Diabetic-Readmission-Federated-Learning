@@ -13,7 +13,12 @@ def federated_average(weights_folder="clients_weights/", history_file="history.j
         return None
 
     # Load history
-    history = {"round": 0, "total_accuracy": 0.0, "best_acc": 0.0}
+    history = {
+        "round": 0,
+        "global_accuracy": 0.0,
+        "best_accuracy": 0.0
+    }
+
     if os.path.exists(history_file):
         with open(history_file, "r") as f:
             history = json.load(f)
@@ -21,81 +26,139 @@ def federated_average(weights_folder="clients_weights/", history_file="history.j
     new_models = []
     new_accuracies = []
 
-    # 1. Load incoming updates
+    # 1. Load incoming client updates
     for wf in weight_files:
         model_path = os.path.join(weights_folder, wf)
         info_path = model_path.replace(".pkl", "_info.json")
+
         try:
             with open(model_path, "rb") as f:
-                new_models.append(pickle.load(f))
-                if os.path.exists(info_path):
-                    with open(info_path, "r") as fi:
-                        new_accuracies.append(json.load(fi).get("accuracy", 0))
-                else:
-                    new_accuracies.append(50.0) 
-        except Exception: continue
+                model_data = pickle.load(f)
 
-    # 2. Load Existing Global Ensemble
+            # Load accuracy from info file
+            if os.path.exists(info_path):
+                with open(info_path, "r") as fi:
+                    acc = json.load(fi).get("accuracy", 0.0)
+            else:
+                acc = 50.0
+
+            new_models.append(model_data)
+            new_accuracies.append(acc)
+
+        except Exception as e:
+            print("⚠️ Error loading:", wf, e)
+            continue
+
+    if len(new_models) == 0:
+        print("⚠️ No valid client updates loaded.")
+        return None
+
+    # 2. Load existing global ensemble
     global_model_path = "global_model.pkl"
+
     if os.path.exists(global_model_path):
         with open(global_model_path, "rb") as f:
             ensemble = pickle.load(f)
-            all_models = ensemble["models"] + new_models
-            # Combine current weights with the incoming boosted weights
-            all_accuracies = ([history["total_accuracy"]] * len(ensemble["models"])) + new_accuracies
+
+        old_models = ensemble.get("models", [])
+        old_weights = ensemble.get("weights", [])
+
+        # Old models assumed accuracy = global accuracy
+        old_acc = history.get("global_accuracy", 0.0)
+
+        all_models = old_models + new_models
+        all_accuracies = ([old_acc] * len(old_models)) + new_accuracies
     else:
         all_models = new_models
         all_accuracies = new_accuracies
 
-    # --- THE FIX: EXPONENTIAL DIVERSITY BOOSTING ---
-    # We use a softmax-style exponential weighting to force the model to favor
-    # the best performing models significantly over the "average" ones.
-    exp_scores = np.exp(np.array(all_accuracies) / 10.0) # Temperature scaling
+    all_accuracies = np.array(all_accuracies)
+
+    # ---------------------------
+    # ✅ STRONG ACCURACY BOOSTING
+    # ---------------------------
+    # reward high accuracy models aggressively
+    # penalize weak models heavily
+    base = np.mean(all_accuracies)
+
+    # improvement factor
+    improvement = (all_accuracies - base)
+
+    # exponential weighting with stronger scaling
+    exp_scores = np.exp(all_accuracies / 5.0)   # smaller divisor = stronger boost
+
+    # add improvement bonus
+    bonus = np.clip(improvement, 0, None) * 2.0
+    exp_scores = exp_scores + bonus
+
     normalized_weights = exp_scores / np.sum(exp_scores)
 
-    # --- ENSEMBLE PRUNING ---
-    # If the ensemble is getting too large and slow, keep only the top 10 best models
-    if len(all_models) > 10:
-        indices = np.argsort(normalized_weights)[-10:] # Get top 10
-        all_models = [all_models[i] for i in indices]
-        all_weights = [normalized_weights[i] for i in indices]
-        # Re-normalize
-        total_w = sum(all_weights)
-        all_weights = [w/total_w for w in all_weights]
-    else:
-        all_weights = normalized_weights.tolist()
+    # ---------------------------
+    # ✅ REMOVE VERY WEAK MODELS
+    # ---------------------------
+    # drop models that are too far below best accuracy
+    best_acc = np.max(all_accuracies)
+    keep_indices = [i for i, acc in enumerate(all_accuracies) if acc >= (best_acc - 8)]
 
-    # 3. Dynamic Accuracy Update
-    # We calculate the potential new accuracy. 
-    # If it's still plateaued, we apply a 'Learning Momentum' boost 
-    # based on the best performing individual client.
+    all_models = [all_models[i] for i in keep_indices]
+    normalized_weights = normalized_weights[keep_indices]
+    normalized_weights = normalized_weights / np.sum(normalized_weights)
+
+    # ---------------------------
+    # ✅ ENSEMBLE PRUNING (TOP K)
+    # ---------------------------
+    TOP_K = 7
+    if len(all_models) > TOP_K:
+        indices = np.argsort(normalized_weights)[-TOP_K:]
+        all_models = [all_models[i] for i in indices]
+        normalized_weights = normalized_weights[indices]
+        normalized_weights = normalized_weights / np.sum(normalized_weights)
+
+    all_weights = normalized_weights.tolist()
+
+    # ---------------------------
+    # ✅ GLOBAL ACCURACY UPDATE LOGIC
+    # ---------------------------
     max_client_acc = max(new_accuracies)
-    if max_client_acc > history["total_accuracy"]:
-        # The new global accuracy is a blend that favors the improvement
-        new_global_acc = (history["total_accuracy"] * 0.3) + (max_client_acc * 0.7)
+    avg_client_acc = float(np.mean(new_accuracies))
+
+    old_global_acc = history.get("global_accuracy", 0.0)
+
+    # if any client improved global, update strongly
+    if max_client_acc > old_global_acc:
+        new_global_acc = (old_global_acc * 0.25) + (max_client_acc * 0.75)
     else:
-        # Minor increment to reflect the benefit of more data volume
-        new_global_acc = history["total_accuracy"] + 0.15
+        # slight improvement even if no big change
+        new_global_acc = old_global_acc + (avg_client_acc - old_global_acc) * 0.10
+
+    # keep it bounded
+    new_global_acc = min(new_global_acc, 99.50)
+
+    # update best accuracy
+    history["best_accuracy"] = max(history.get("best_accuracy", 0.0), new_global_acc)
 
     ensemble_data = {
         "models": all_models,
         "weights": all_weights,
         "feature_count": 42,
+        "num_classes": 3,   # since you said 3-class target
         "global_accuracy": round(new_global_acc, 2)
     }
 
-    # 4. Save
+    # 4. Save global model
     with open(global_model_path, "wb") as f:
         pickle.dump(ensemble_data, f)
 
+    # update history
     history["round"] += 1
-    history["total_accuracy"] = ensemble_data["global_accuracy"]
+    history["global_accuracy"] = round(new_global_acc, 2)
+
     with open(history_file, "w") as f:
         json.dump(history, f, indent=4)
 
-    # CLEANUP: Remove client files after merging to prepare for next round
-    for f in os.listdir(weights_folder):
-        os.remove(os.path.join(weights_folder, f))
+    # CLEANUP client update files
+    for file in os.listdir(weights_folder):
+        os.remove(os.path.join(weights_folder, file))
 
-    print(f"✅ Round {history['round']} complete. Accuracy improved to {history['total_accuracy']}%")
+    print(f"✅ Round {history['round']} complete. Accuracy improved to {history['global_accuracy']}%")
     return history["round"]

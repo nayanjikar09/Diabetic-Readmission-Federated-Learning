@@ -1,0 +1,11 @@
+{
+    "client": "hospital_A",
+    "train_accuracy_percent": 94.32,
+    "test_accuracy_percent": 73.66,
+    "micro_f1": 0.7366,
+    "macro_f1": 0.6946,
+    "weighted_f1": 0.7356,
+    "auc_roc_macro_ovr": 0.8395,
+    "num_train_samples": 71236,
+    "num_test_samples": 30530
+}
